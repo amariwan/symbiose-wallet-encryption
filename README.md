@@ -65,6 +65,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
   [XChaCha20-Poly1305]
          ↓
 [Encrypted Blob] = [Salt || Nonce || Ciphertext || Auth Tag]
+
+The library encrypts the raw 64-byte keypair directly to avoid leaving Base58 strings in memory, improving zeroization guarantees and reducing overhead.
 ```
 
 ### Data Layout
@@ -87,6 +89,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 - **Memory**: 65_536 KiB (64 MiB)
 - **Parallelism**: 1 lane
 - **Output**: 256-bit key
+
+Parameters are configurable via `Argon2Params`; lower them for constrained devices or raise memory for stronger GPU resistance.
 
 ### AEAD (XChaCha20-Poly1305)
 
@@ -207,7 +211,7 @@ For production use in high-value systems, we recommend:
 | `orion`      | 0.17    | Cryptographic primitives             |
 | `solana-sdk` | 2.0     | Solana keypair handling              |
 | `getrandom`  | 0.2     | Secure random number generation      |
-| `bs58`       | 0.4     | Base58 encoding/decoding             |
+| `hex`        | 0.4     | Hex previews in demo/example         |
 | `anyhow`     | 1.0     | Error handling                       |
 | `zeroize`    | 1.7     | Secure memory zeroing                |
 

@@ -10,15 +10,13 @@ license = "MIT"
 # Cryptography library - provides AEAD, Argon2, and secure types
 orion = "0.17"
 
-# Solana SDK for Keypair handling
-# Using version 2.x which has updated dependency constraints
+# Solana SDK for benchmark helper (optional for CLI only)
 solana-sdk = "2.0"
 
 # Cryptographically secure random number generation
 getrandom = { version = "0.2", features = ["std"] }
 
-# Base58 encoding/decoding for Solana keypairs
-bs58 = "0.4"
+# Hex formatting for previews/demo
 hex = "0.4"
 
 # Error handling
@@ -27,6 +25,10 @@ thiserror = "1.0"
 
 # Secure memory zeroing for sensitive data
 zeroize = { version = "1.8", features = ["derive"] }
+
+# CLI
+clap = { version = "4.5", features = ["derive"] }
+rpassword = "7.3"
 
 [dev-dependencies]
 # For hex encoding in tests and examples

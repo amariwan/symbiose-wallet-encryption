@@ -38,344 +38,32 @@
 //! # }
 //! ```
 
-use getrandom::getrandom;
-use orion::{
-    hazardous::{
-        aead::xchacha20poly1305::{open, seal, Nonce, SecretKey},
-        mac::poly1305::POLY1305_OUTSIZE,
-        stream::chacha20::CHACHA_KEYSIZE,
-    },
-    kdf::{derive_key, Password, Salt},
+mod bytes;
+mod constants;
+mod errors;
+mod kdf;
+mod params;
+mod rng;
+mod sensitive;
+mod wallet;
+
+// Re-export public API for a clean, small crate interface
+pub use bytes::{
+    change_password, change_password_with_params, decrypt_bytes, decrypt_bytes_with_params,
+    encrypt_bytes, encrypt_bytes_with_params,
 };
-use solana_sdk::signature::Keypair;
-use std::convert::TryFrom;
-use thiserror::Error;
-use zeroize::Zeroize;
-
-/// Custom error types for wallet encryption/decryption operations
-#[derive(Error, Debug)]
-pub enum WalletEncryptionError {
-    #[error("Failed to generate cryptographically secure random bytes")]
-    RandomGenerationFailed,
-
-    #[error("Invalid password or corrupted data")]
-    DecryptionFailed,
-
-    #[error("Encrypted data is too short or malformed")]
-    InvalidDataFormat,
-
-    #[error("Failed to derive encryption key from password")]
-    KeyDerivationFailed,
-
-    #[error("Failed to restore Solana keypair from decrypted data")]
-    KeypairRestorationFailed,
-
-    #[error("Internal cryptographic error: {0}")]
-    CryptoError(String),
-}
-
-/// Wrapper for sensitive data that will be automatically zeroed when dropped
-#[derive(Zeroize)]
-#[zeroize(drop)]
-struct SensitiveData(Vec<u8>);
-
-impl SensitiveData {
-    /// Creates a new SensitiveData wrapper from a vector
-    fn new(data: Vec<u8>) -> Self {
-        Self(data)
-    }
-
-    /// Returns a reference to the inner data
-    fn as_bytes(&self) -> &[u8] {
-        &self.0
-    }
-}
-
-// Constants for data layout
-const SALT_LEN: usize = 32;
-const NONCE_LEN: usize = 24; // XChaCha20-Poly1305 nonce size
-const TAG_LEN: usize = POLY1305_OUTSIZE; // 16 bytes
-
-// Tunable Argon2id parameters (memory dominates GPU-resistance)
-const ARGON2_ITERATIONS: u32 = 15; // Time cost
-const ARGON2_MEMORY_KIB: u32 = 65_536; // 64 MiB (desktop/server-friendly baseline)
-
-/// Generates a cryptographically secure random salt for key derivation
-///
-/// # Returns
-///
-/// A 32-byte salt wrapped in Orion's `Salt` type
-///
-/// # Errors
-///
-/// Returns `WalletEncryptionError::RandomGenerationFailed` if the system's
-/// random number generator is unavailable or fails
-fn generate_salt() -> Result<Salt, WalletEncryptionError> {
-    let mut salt_bytes = [0u8; SALT_LEN];
-    getrandom(&mut salt_bytes).map_err(|_| WalletEncryptionError::RandomGenerationFailed)?;
-
-    Salt::from_slice(&salt_bytes)
-        .map_err(|e| WalletEncryptionError::CryptoError(format!("Salt creation failed: {}", e)))
-}
-
-/// Generates a cryptographically secure random nonce for encryption
-///
-/// # Returns
-///
-/// A 24-byte nonce wrapped in Orion's `Nonce` type
-///
-/// # Errors
-///
-/// Returns `WalletEncryptionError::RandomGenerationFailed` if the system's
-/// random number generator is unavailable or fails
-fn generate_nonce() -> Result<Nonce, WalletEncryptionError> {
-    let mut nonce_bytes = [0u8; NONCE_LEN];
-    getrandom(&mut nonce_bytes).map_err(|_| WalletEncryptionError::RandomGenerationFailed)?;
-
-    Nonce::from_slice(&nonce_bytes)
-        .map_err(|e| WalletEncryptionError::CryptoError(format!("Nonce creation failed: {}", e)))
-}
-
-/// Derives a 256-bit encryption key from a password and salt using Argon2id
-///
-/// # Parameters
-///
-/// - `password`: User-provided password string
-/// - `salt`: Unique salt for this key derivation
-///
-/// # Security Parameters
-///
-/// - Algorithm: Argon2id (hybrid mode - resistant to both side-channel and GPU attacks)
-/// - Iterations: 15 (time cost)
-/// - Memory: 65_536 KiB (memory cost)
-/// - Parallelism: 1 (lanes)
-/// - Output length: 32 bytes (256 bits)
-///
-/// # Returns
-///
-/// A `SecretKey` suitable for XChaCha20-Poly1305 encryption
-///
-/// # Errors
-///
-/// Returns `WalletEncryptionError::KeyDerivationFailed` if the KDF fails
-/// or if parameters are invalid
-fn derive_secret_key(password: &str, salt: &Salt) -> Result<SecretKey, WalletEncryptionError> {
-    // Wrap password in Orion's secure Password type (auto-zeroizes on drop)
-    let password_protected = Password::from_slice(password.as_bytes()).map_err(|e| {
-        WalletEncryptionError::CryptoError(format!("Password wrapping failed: {}", e))
-    })?;
-
-    // Derive key using Argon2id with secure defaults
-    // These parameters provide a good balance between security and performance
-    // For higher security requirements, increase iterations or memory
-    let derived_key = derive_key(
-        &password_protected,
-        salt,
-        ARGON2_ITERATIONS,
-        ARGON2_MEMORY_KIB,
-        CHACHA_KEYSIZE as u32,
-    )
-    .map_err(|_| WalletEncryptionError::KeyDerivationFailed)?;
-
-    // Convert to XChaCha20 SecretKey type
-    SecretKey::from_slice(derived_key.unprotected_as_bytes()).map_err(|e| {
-        WalletEncryptionError::CryptoError(format!("SecretKey conversion failed: {}", e))
-    })
-}
-
-/// Encrypts a Solana wallet keypair using password-based AEAD encryption
-///
-/// # Process
-///
-/// 1. Serialize keypair to Base58 string (standard Solana format)
-/// 2. Generate random salt for KDF
-/// 3. Derive encryption key from password + salt using Argon2id
-/// 4. Generate random nonce for AEAD
-/// 5. Encrypt plaintext using XChaCha20-Poly1305
-/// 6. Return concatenated blob: [Salt || Nonce || Ciphertext || Tag]
-///
-/// # Parameters
-///
-/// - `wallet`: Reference to the Solana keypair to encrypt
-/// - `password`: User password for encryption
-///
-/// # Returns
-///
-/// A `Vec<u8>` containing the complete encrypted blob, ready for storage
-///
-/// # Security
-///
-/// - All sensitive data (plaintext, keys) is automatically zeroized after use
-/// - Each encryption uses a unique salt and nonce
-/// - AEAD ensures both confidentiality and authenticity
-///
-/// # Errors
-///
-/// Returns errors if random generation, key derivation, or encryption fails
-///
-/// # Example
-///
-/// ```rust
-/// use solana_sdk::signature::Keypair;
-/// use symbiose_wallet_encryption::encrypt_wallet;
-///
-/// # fn main() -> Result<(), Box<dyn std::error::Error>> {
-/// let wallet = Keypair::new();
-/// let encrypted = encrypt_wallet(&wallet, "strong-password")?;
-/// // Store `encrypted` to disk or database
-/// # Ok(())
-/// # }
-/// ```
-pub fn encrypt_wallet(wallet: &Keypair, password: &str) -> Result<Vec<u8>, WalletEncryptionError> {
-    // Step 1: Serialize wallet to Base58 string (Solana standard format)
-    let wallet_base58 = wallet.to_base58_string();
-    let plaintext = SensitiveData::new(wallet_base58.into_bytes());
-
-    // Step 2: Generate random salt
-    let salt = generate_salt()?;
-
-    // Step 3: Derive encryption key from password + salt
-    let key = derive_secret_key(password, &salt)?;
-
-    // Step 4: Generate random nonce
-    let nonce = generate_nonce()?;
-
-    // Step 5: Prepare buffer for ciphertext + authentication tag
-    let mut ciphertext_buffer = vec![0u8; plaintext.as_bytes().len() + TAG_LEN];
-
-    // Step 6: Encrypt and authenticate using AEAD
-    // The seal() function encrypts the plaintext and appends the Poly1305 tag
-    seal(
-        &key,
-        &nonce,
-        plaintext.as_bytes(),
-        None,
-        &mut ciphertext_buffer,
-    )
-    .map_err(|e| WalletEncryptionError::CryptoError(format!("Encryption failed: {}", e)))?;
-
-    // Step 7: Assemble final blob: [Salt || Nonce || Ciphertext+Tag]
-    let mut final_blob = Vec::with_capacity(SALT_LEN + NONCE_LEN + ciphertext_buffer.len());
-    final_blob.extend_from_slice(salt.as_ref());
-    final_blob.extend_from_slice(nonce.as_ref());
-    final_blob.extend_from_slice(&ciphertext_buffer);
-
-    // plaintext and key are automatically zeroized here when dropped
-    Ok(final_blob)
-}
-
-/// Decrypts an encrypted wallet blob back into a Solana keypair
-///
-/// # Process
-///
-/// 1. Parse blob into: [Salt || Nonce || Ciphertext+Tag]
-/// 2. Derive decryption key from password + extracted salt (must match encryption key)
-/// 3. Decrypt and verify using XChaCha20-Poly1305 AEAD
-/// 4. Decode Base58 string to keypair bytes
-/// 5. Restore Solana Keypair object
-///
-/// # Parameters
-///
-/// - `encrypted_data`: The encrypted blob returned by `encrypt_wallet`
-/// - `password`: User password (must match the one used for encryption)
-///
-/// # Returns
-///
-/// The original `Keypair` if decryption and authentication succeed
-///
-/// # Security
-///
-/// - AEAD verification prevents:
-///   - Wrong password
-///   - Data tampering/corruption
-///   - Bit flips or modifications
-/// - All intermediate sensitive data is zeroized after use
-///
-/// # Errors
-///
-/// - `InvalidDataFormat`: If blob is too short or malformed
-/// - `DecryptionFailed`: If password is wrong or data is corrupted (AEAD check fails)
-/// - `KeypairRestorationFailed`: If decrypted data is not a valid Solana keypair
-///
-/// # Example
-///
-/// ```rust
-/// use solana_sdk::signature::Keypair;
-/// use symbiose_wallet_encryption::{encrypt_wallet, decrypt_wallet};
-///
-/// # fn main() -> Result<(), Box<dyn std::error::Error>> {
-/// let original = Keypair::new();
-/// let encrypted = encrypt_wallet(&original, "password")?;
-/// let restored = decrypt_wallet(&encrypted, "password")?;
-/// assert_eq!(original.to_bytes(), restored.to_bytes());
-/// # Ok(())
-/// # }
-/// ```
-pub fn decrypt_wallet(
-    encrypted_data: &[u8],
-    password: &str,
-) -> Result<Keypair, WalletEncryptionError> {
-    // Step 1: Validate minimum length
-    if encrypted_data.len() < SALT_LEN + NONCE_LEN + TAG_LEN {
-        return Err(WalletEncryptionError::InvalidDataFormat);
-    }
-
-    // Step 2: Extract components from blob
-    let salt_bytes = &encrypted_data[..SALT_LEN];
-    let nonce_bytes = &encrypted_data[SALT_LEN..SALT_LEN + NONCE_LEN];
-    let ciphertext_with_tag = &encrypted_data[SALT_LEN + NONCE_LEN..];
-
-    // Step 3: Reconstruct Salt and Nonce types
-    let salt = Salt::from_slice(salt_bytes).map_err(|e| {
-        WalletEncryptionError::CryptoError(format!("Salt reconstruction failed: {}", e))
-    })?;
-
-    let nonce = Nonce::from_slice(nonce_bytes).map_err(|e| {
-        WalletEncryptionError::CryptoError(format!("Nonce reconstruction failed: {}", e))
-    })?;
-
-    // Step 4: Derive decryption key (must match encryption key!)
-    let key = derive_secret_key(password, &salt)?;
-
-    // Step 5: Decrypt and verify AEAD
-    // This will fail if:
-    // - Password is wrong (different derived key)
-    // - Data has been tampered with (Poly1305 tag mismatch)
-    // - Data is corrupted
-    let plaintext_len = ciphertext_with_tag.len() - TAG_LEN;
-    let mut plaintext_buffer = vec![0u8; plaintext_len];
-
-    open(
-        &key,
-        &nonce,
-        ciphertext_with_tag,
-        None,
-        &mut plaintext_buffer,
-    )
-    .map_err(|_| WalletEncryptionError::DecryptionFailed)?;
-
-    // Wrap in SensitiveData for automatic zeroization
-    let plaintext_sensitive = SensitiveData::new(plaintext_buffer);
-
-    // Step 6: Decode Base58 string
-    let wallet_str = String::from_utf8(plaintext_sensitive.0.clone())
-        .map_err(|_| WalletEncryptionError::KeypairRestorationFailed)?;
-
-    let wallet_bytes = bs58::decode(&wallet_str)
-        .into_vec()
-        .map_err(|e| WalletEncryptionError::CryptoError(format!("Base58 decode failed: {}", e)))?;
-
-    // Step 7: Restore Solana Keypair
-    let keypair = Keypair::try_from(wallet_bytes.as_slice())
-        .map_err(|_| WalletEncryptionError::KeypairRestorationFailed)?;
-
-    // plaintext_sensitive and key are zeroized here
-    Ok(keypair)
-}
+pub use constants::{NONCE_LEN, SALT_LEN, TAG_LEN};
+pub use errors::WalletEncryptionError;
+pub use params::{Argon2Params, SecurityParams};
+pub use sensitive::SensitiveData;
+pub use wallet::{
+    decrypt_wallet, decrypt_wallet_with_params, encrypt_wallet, encrypt_wallet_with_params,
+};
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use solana_sdk::signature::Keypair;
     use solana_sdk::signature::Signer;
 
     #[test]
@@ -529,5 +217,22 @@ mod tests {
         assert!(decrypt_wallet(&encrypted2, password2).is_ok());
         assert!(decrypt_wallet(&encrypted1, password2).is_err());
         assert!(decrypt_wallet(&encrypted2, password1).is_err());
+    }
+
+    #[test]
+    fn test_custom_kdf_params_roundtrip() {
+        let wallet = Keypair::new();
+        let password = "custom-kdf";
+        let params = Argon2Params {
+            iterations: 3,
+            memory_kib: 8_192,
+        };
+
+        let encrypted = encrypt_wallet_with_params(&wallet, password, params)
+            .expect("Encryption with custom KDF params should succeed");
+        let decrypted = decrypt_wallet_with_params(&encrypted, password, params)
+            .expect("Decryption with matching KDF params should succeed");
+
+        assert_eq!(wallet.to_bytes(), decrypted.to_bytes());
     }
 }

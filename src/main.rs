@@ -228,3 +228,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn main_signature_is_stable() {
+        let entrypoint: fn() -> Result<(), Box<dyn std::error::Error>> = main;
+        let _ = entrypoint;
+    }
+}
