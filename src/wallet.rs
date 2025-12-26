@@ -17,7 +17,7 @@ pub fn encrypt_wallet_with_params(
     params: Argon2Params,
 ) -> Result<Vec<u8>, WalletEncryptionError> {
     let keypair_bytes = wallet.to_bytes();
-    encrypt_bytes_with_params(&keypair_bytes, password, SecurityParams::from(params))
+    encrypt_bytes_with_params(keypair_bytes, password, SecurityParams::from(params))
 }
 
 /// Decrypts an encrypted wallet blob back into a Solana keypair
@@ -54,8 +54,8 @@ mod tests {
 
         let encrypted =
             encrypt_wallet_with_params(&wallet, password, params).expect("encryption should work");
-        let decrypted =
-            decrypt_wallet_with_params(&encrypted, password, params).expect("decryption should work");
+        let decrypted = decrypt_wallet_with_params(&encrypted, password, params)
+            .expect("decryption should work");
 
         assert_eq!(wallet.pubkey(), decrypted.pubkey());
         assert_eq!(wallet.to_bytes(), decrypted.to_bytes());
@@ -66,6 +66,9 @@ mod tests {
         let short_data = vec![0u8; 8];
         let result = decrypt_wallet(&short_data, "password");
 
-        assert!(matches!(result, Err(WalletEncryptionError::InvalidDataFormat)));
+        assert!(matches!(
+            result,
+            Err(WalletEncryptionError::InvalidDataFormat)
+        ));
     }
 }

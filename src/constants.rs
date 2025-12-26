@@ -7,12 +7,12 @@ pub const TAG_LEN: usize = POLY1305_OUTSIZE; // 16 bytes
 
 #[cfg(test)]
 mod tests {
-	use super::*;
+    use super::*;
 
-	#[test]
-	fn constants_match_expected_sizes() {
-		assert_eq!(SALT_LEN, 32);
-		assert_eq!(NONCE_LEN, 24);
-		assert_eq!(TAG_LEN, 16);
-	}
+    #[test]
+    fn constants_match_expected_sizes() {
+        assert_eq!(SALT_LEN, 32);
+        assert_eq!(NONCE_LEN, 24);
+        assert_eq!(TAG_LEN, 16);
+    }
 }

@@ -162,7 +162,10 @@ mod tests {
 
         assert!(decrypt_bytes(&rotated, new_password).is_ok());
         let wrong_password_result = decrypt_bytes(&rotated, PASSWORD);
-        assert!(matches!(wrong_password_result, Err(WalletEncryptionError::DecryptionFailed)));
+        assert!(matches!(
+            wrong_password_result,
+            Err(WalletEncryptionError::DecryptionFailed)
+        ));
     }
 
     #[test]
@@ -170,6 +173,9 @@ mod tests {
         let too_short = vec![0u8; SALT_LEN + NONCE_LEN + TAG_LEN - 1];
         let result = decrypt_bytes(&too_short, PASSWORD);
 
-        assert!(matches!(result, Err(WalletEncryptionError::InvalidDataFormat)));
+        assert!(matches!(
+            result,
+            Err(WalletEncryptionError::InvalidDataFormat)
+        ));
     }
 }
