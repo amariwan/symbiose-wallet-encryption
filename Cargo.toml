@@ -1,0 +1,36 @@
+[package]
+name = "symbiose-wallet-encryption"
+version = "0.1.0"
+edition = "2021"
+authors = ["Symbiose Team"]
+description = "Secure password-based encryption for Solana wallet private keys using XChaCha20-Poly1305 AEAD"
+license = "MIT"
+
+[dependencies]
+# Cryptography library - provides AEAD, Argon2, and secure types
+orion = "0.17"
+
+# Solana SDK for Keypair handling
+# Using version 2.x which has updated dependency constraints
+solana-sdk = "2.0"
+
+# Cryptographically secure random number generation
+getrandom = { version = "0.2", features = ["std"] }
+
+# Base58 encoding/decoding for Solana keypairs
+bs58 = "0.4"
+
+# Error handling
+anyhow = "1.0"
+thiserror = "1.0"
+
+# Secure memory zeroing for sensitive data
+zeroize = { version = "1.8", features = ["derive"] }
+
+[dev-dependencies]
+# For hex encoding in tests and examples
+hex = "0.4"
+
+[[example]]
+name = "basic_usage"
+path = "examples/basic_usage.rs"
