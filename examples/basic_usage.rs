@@ -2,7 +2,7 @@
 //!
 //! Run with: cargo run --example basic_usage
 
-use solana_sdk::signature::Keypair;
+use solana_sdk::signature::{Keypair, Signer};
 use symbiose_wallet_encryption::{decrypt_wallet, encrypt_wallet};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {

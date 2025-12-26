@@ -3,7 +3,7 @@
 //! This binary demonstrates the complete encryption/decryption workflow
 //! and runs various security test scenarios.
 
-use solana_sdk::signature::Keypair;
+use solana_sdk::signature::{Keypair, Signer};
 use symbiose_wallet_encryption::{decrypt_wallet, encrypt_wallet};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -21,7 +21,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let original_wallet = Keypair::new();
     println!("✓ Generated new Solana wallet");
     println!("  Public Key: {}", original_wallet.pubkey());
-    println!("  Private Key (first 8 bytes): {:02x?}...", &original_wallet.to_bytes()[..8]);
+    println!(
+        "  Private Key (first 8 bytes): {:02x?}...",
+        &original_wallet.to_bytes()[..8]
+    );
 
     // Set password (in production, get this securely from user input)
     let password = "mein-super-geheimes-passwort-2025!";
@@ -33,7 +36,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("✓ Encryption successful!");
     println!("  Encrypted blob size: {} bytes", encrypted_blob.len());
     println!("  Blob structure: [Salt(32) + Nonce(24) + Ciphertext + Tag(16)]");
-    println!("  Blob preview (hex): {}...", hex::encode(&encrypted_blob[..32]));
+    println!(
+        "  Blob preview (hex): {}...",
+        hex::encode(&encrypted_blob[..32])
+    );
 
     // Decrypt the wallet
     println!("\n🔓 Decrypting wallet...");
@@ -56,7 +62,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
 
     let wrong_password = "falsches-passwort";
-    println!("🔓 Attempting decryption with wrong password: '{}'", wrong_password);
+    println!(
+        "🔓 Attempting decryption with wrong password: '{}'",
+        wrong_password
+    );
 
     match decrypt_wallet(&encrypted_blob, wrong_password) {
         Ok(_) => {
@@ -82,8 +91,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     tampered_blob[tamper_position] ^= 0xFF;
 
     println!("🔧 Tampering with encrypted data...");
-    println!("  Position: byte {} (in authentication tag)", tamper_position);
-    println!("  Original: 0x{:02x} → Tampered: 0x{:02x}", original_byte, tampered_blob[tamper_position]);
+    println!(
+        "  Position: byte {} (in authentication tag)",
+        tamper_position
+    );
+    println!(
+        "  Original: 0x{:02x} → Tampered: 0x{:02x}",
+        original_byte, tampered_blob[tamper_position]
+    );
 
     println!("\n🔓 Attempting decryption with correct password but tampered data...");
     match decrypt_wallet(&tampered_blob, password) {
@@ -140,8 +155,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         return Err("Uniqueness test failed".into());
     } else {
         println!("✅ Ciphertexts are different!");
-        println!("  Encryption 1 (first 32 bytes): {}", hex::encode(&encrypted1[..32]));
-        println!("  Encryption 2 (first 32 bytes): {}", hex::encode(&encrypted2[..32]));
+        println!(
+            "  Encryption 1 (first 32 bytes): {}",
+            hex::encode(&encrypted1[..32])
+        );
+        println!(
+            "  Encryption 2 (first 32 bytes): {}",
+            hex::encode(&encrypted2[..32])
+        );
         println!("  Reason: Unique random salt and nonce per encryption");
     }
 
@@ -150,8 +171,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let decrypted1 = decrypt_wallet(&encrypted1, password)?;
     let decrypted2 = decrypt_wallet(&encrypted2, password)?;
 
-    if decrypted1.to_bytes() == decrypted2.to_bytes() &&
-       decrypted1.to_bytes() == original_wallet.to_bytes() {
+    if decrypted1.to_bytes() == decrypted2.to_bytes()
+        && decrypted1.to_bytes() == original_wallet.to_bytes()
+    {
         println!("✅ Both ciphertexts decrypt to the correct wallet!");
     } else {
         println!("❌ Decryption mismatch!");

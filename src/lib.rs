@@ -38,12 +38,11 @@
 //! # }
 //! ```
 
-use anyhow::{anyhow, Context, Result};
+use std::convert::TryFrom;
 use getrandom::getrandom;
 use orion::{
-    aead::{open, seal},
     hazardous::{
-        aead::xchacha20poly1305::{Nonce, SecretKey, XCHACHA_NONCESIZE},
+        aead::xchacha20poly1305::{open, seal, Nonce, SecretKey},
         mac::poly1305::POLY1305_OUTSIZE,
         stream::chacha20::CHACHA_KEYSIZE,
     },
@@ -94,7 +93,7 @@ impl SensitiveData {
 
 // Constants for data layout
 const SALT_LEN: usize = 32;
-const NONCE_LEN: usize = XCHACHA_NONCESIZE; // 24 bytes
+const NONCE_LEN: usize = 24; // XChaCha20-Poly1305 nonce size
 const TAG_LEN: usize = POLY1305_OUTSIZE; // 16 bytes
 
 /// Generates a cryptographically secure random salt for key derivation
@@ -158,8 +157,9 @@ fn generate_nonce() -> Result<Nonce, WalletEncryptionError> {
 /// or if parameters are invalid
 fn derive_secret_key(password: &str, salt: &Salt) -> Result<SecretKey, WalletEncryptionError> {
     // Wrap password in Orion's secure Password type (auto-zeroizes on drop)
-    let password_protected = Password::from_slice(password.as_bytes())
-        .map_err(|e| WalletEncryptionError::CryptoError(format!("Password wrapping failed: {}", e)))?;
+    let password_protected = Password::from_slice(password.as_bytes()).map_err(|e| {
+        WalletEncryptionError::CryptoError(format!("Password wrapping failed: {}", e))
+    })?;
 
     // Derive key using Argon2id with secure defaults
     // These parameters provide a good balance between security and performance
@@ -168,8 +168,9 @@ fn derive_secret_key(password: &str, salt: &Salt) -> Result<SecretKey, WalletEnc
         .map_err(|_| WalletEncryptionError::KeyDerivationFailed)?;
 
     // Convert to XChaCha20 SecretKey type
-    SecretKey::from_slice(derived_key.unprotected_as_bytes())
-        .map_err(|e| WalletEncryptionError::CryptoError(format!("SecretKey conversion failed: {}", e)))
+    SecretKey::from_slice(derived_key.unprotected_as_bytes()).map_err(|e| {
+        WalletEncryptionError::CryptoError(format!("SecretKey conversion failed: {}", e))
+    })
 }
 
 /// Encrypts a Solana wallet keypair using password-based AEAD encryption
@@ -218,7 +219,7 @@ fn derive_secret_key(password: &str, salt: &Salt) -> Result<SecretKey, WalletEnc
 pub fn encrypt_wallet(wallet: &Keypair, password: &str) -> Result<Vec<u8>, WalletEncryptionError> {
     // Step 1: Serialize wallet to Base58 string (Solana standard format)
     let wallet_base58 = wallet.to_base58_string();
-    let mut plaintext = SensitiveData::new(wallet_base58.into_bytes());
+    let plaintext = SensitiveData::new(wallet_base58.into_bytes());
 
     // Step 2: Generate random salt
     let salt = generate_salt()?;
@@ -234,8 +235,14 @@ pub fn encrypt_wallet(wallet: &Keypair, password: &str) -> Result<Vec<u8>, Walle
 
     // Step 6: Encrypt and authenticate using AEAD
     // The seal() function encrypts the plaintext and appends the Poly1305 tag
-    seal(&key, &nonce, plaintext.as_bytes(), None, &mut ciphertext_buffer)
-        .map_err(|e| WalletEncryptionError::CryptoError(format!("Encryption failed: {}", e)))?;
+    seal(
+        &key,
+        &nonce,
+        plaintext.as_bytes(),
+        None,
+        &mut ciphertext_buffer,
+    )
+    .map_err(|e| WalletEncryptionError::CryptoError(format!("Encryption failed: {}", e)))?;
 
     // Step 7: Assemble final blob: [Salt || Nonce || Ciphertext+Tag]
     let mut final_blob = Vec::with_capacity(SALT_LEN + NONCE_LEN + ciphertext_buffer.len());
@@ -309,11 +316,13 @@ pub fn decrypt_wallet(
     let ciphertext_with_tag = &encrypted_data[SALT_LEN + NONCE_LEN..];
 
     // Step 3: Reconstruct Salt and Nonce types
-    let salt = Salt::from_slice(salt_bytes)
-        .map_err(|e| WalletEncryptionError::CryptoError(format!("Salt reconstruction failed: {}", e)))?;
+    let salt = Salt::from_slice(salt_bytes).map_err(|e| {
+        WalletEncryptionError::CryptoError(format!("Salt reconstruction failed: {}", e))
+    })?;
 
-    let nonce = Nonce::from_slice(nonce_bytes)
-        .map_err(|e| WalletEncryptionError::CryptoError(format!("Nonce reconstruction failed: {}", e)))?;
+    let nonce = Nonce::from_slice(nonce_bytes).map_err(|e| {
+        WalletEncryptionError::CryptoError(format!("Nonce reconstruction failed: {}", e))
+    })?;
 
     // Step 4: Derive decryption key (must match encryption key!)
     let key = derive_secret_key(password, &salt)?;
@@ -326,11 +335,17 @@ pub fn decrypt_wallet(
     let plaintext_len = ciphertext_with_tag.len() - TAG_LEN;
     let mut plaintext_buffer = vec![0u8; plaintext_len];
 
-    open(&key, &nonce, ciphertext_with_tag, None, &mut plaintext_buffer)
-        .map_err(|_| WalletEncryptionError::DecryptionFailed)?;
+    open(
+        &key,
+        &nonce,
+        ciphertext_with_tag,
+        None,
+        &mut plaintext_buffer,
+    )
+    .map_err(|_| WalletEncryptionError::DecryptionFailed)?;
 
     // Wrap in SensitiveData for automatic zeroization
-    let mut plaintext_sensitive = SensitiveData::new(plaintext_buffer);
+    let plaintext_sensitive = SensitiveData::new(plaintext_buffer);
 
     // Step 6: Decode Base58 string
     let wallet_str = String::from_utf8(plaintext_sensitive.0.clone())
@@ -341,7 +356,7 @@ pub fn decrypt_wallet(
         .map_err(|_| WalletEncryptionError::KeypairRestorationFailed)?;
 
     // Step 7: Restore Solana Keypair
-    let keypair = Keypair::from_bytes(&wallet_bytes)
+    let keypair = Keypair::try_from(wallet_bytes.as_slice())
         .map_err(|_| WalletEncryptionError::KeypairRestorationFailed)?;
 
     // plaintext_sensitive and key are zeroized here
@@ -351,6 +366,7 @@ pub fn decrypt_wallet(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use solana_sdk::signature::Signer;
 
     #[test]
     fn test_successful_encryption_and_decryption() {
@@ -358,15 +374,15 @@ mod tests {
         let password = "test-password-2025!";
 
         // Encrypt
-        let encrypted = encrypt_wallet(&original_wallet, password)
-            .expect("Encryption should succeed");
+        let encrypted =
+            encrypt_wallet(&original_wallet, password).expect("Encryption should succeed");
 
         // Verify blob structure
         assert!(encrypted.len() > SALT_LEN + NONCE_LEN + TAG_LEN);
 
         // Decrypt
-        let decrypted_wallet = decrypt_wallet(&encrypted, password)
-            .expect("Decryption should succeed");
+        let decrypted_wallet =
+            decrypt_wallet(&encrypted, password).expect("Decryption should succeed");
 
         // Validate
         assert_eq!(
@@ -388,8 +404,8 @@ mod tests {
         let correct_password = "correct-password";
         let wrong_password = "wrong-password";
 
-        let encrypted = encrypt_wallet(&wallet, correct_password)
-            .expect("Encryption should succeed");
+        let encrypted =
+            encrypt_wallet(&wallet, correct_password).expect("Encryption should succeed");
 
         let result = decrypt_wallet(&encrypted, wrong_password);
 
@@ -404,8 +420,7 @@ mod tests {
         let wallet = Keypair::new();
         let password = "test-password";
 
-        let mut encrypted = encrypt_wallet(&wallet, password)
-            .expect("Encryption should succeed");
+        let mut encrypted = encrypt_wallet(&wallet, password).expect("Encryption should succeed");
 
         // Tamper with the last byte (inside the authentication tag)
         let last_idx = encrypted.len() - 1;
@@ -424,8 +439,7 @@ mod tests {
         let wallet = Keypair::new();
         let password = "test-password";
 
-        let mut encrypted = encrypt_wallet(&wallet, password)
-            .expect("Encryption should succeed");
+        let mut encrypted = encrypt_wallet(&wallet, password).expect("Encryption should succeed");
 
         // Corrupt the salt (first byte)
         encrypted[0] ^= 0xFF;
@@ -481,8 +495,10 @@ mod tests {
         );
 
         // But both should decrypt to the same wallet
-        let decrypted1 = decrypt_wallet(&encrypted1, password).expect("Decryption 1 should succeed");
-        let decrypted2 = decrypt_wallet(&encrypted2, password).expect("Decryption 2 should succeed");
+        let decrypted1 =
+            decrypt_wallet(&encrypted1, password).expect("Decryption 1 should succeed");
+        let decrypted2 =
+            decrypt_wallet(&encrypted2, password).expect("Decryption 2 should succeed");
 
         assert_eq!(decrypted1.to_bytes(), decrypted2.to_bytes());
     }

@@ -29,7 +29,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     let duration = start.elapsed();
     println!("  ✓ {} wallets generated in {:?}", iterations, duration);
-    println!("  ⏱ Average: {:.2}ms per wallet\n", duration.as_millis() as f64 / iterations as f64);
+    println!(
+        "  ⏱ Average: {:.2}ms per wallet\n",
+        duration.as_millis() as f64 / iterations as f64
+    );
 
     // Benchmark: Encryption
     println!("🔒 Benchmarking encryption...");
@@ -41,8 +44,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     let duration = start.elapsed();
     println!("  ✓ {} encryptions completed in {:?}", iterations, duration);
-    println!("  ⏱ Average: {:.2}ms per encryption", duration.as_millis() as f64 / iterations as f64);
-    println!("  📦 Encrypted blob size: {} bytes\n", encrypted_blobs[0].len());
+    println!(
+        "  ⏱ Average: {:.2}ms per encryption",
+        duration.as_millis() as f64 / iterations as f64
+    );
+    println!(
+        "  📦 Encrypted blob size: {} bytes\n",
+        encrypted_blobs[0].len()
+    );
 
     // Benchmark: Decryption
     println!("🔓 Benchmarking decryption...");
@@ -53,7 +62,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     let duration = start.elapsed();
     println!("  ✓ {} decryptions completed in {:?}", iterations, duration);
-    println!("  ⏱ Average: {:.2}ms per decryption\n", duration.as_millis() as f64 / iterations as f64);
+    println!(
+        "  ⏱ Average: {:.2}ms per decryption\n",
+        duration.as_millis() as f64 / iterations as f64
+    );
 
     // Benchmark: Failed Decryption (wrong password)
     println!("❌ Benchmarking failed decryption (wrong password)...");
@@ -67,7 +79,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     let duration = start.elapsed();
     println!("  ✓ {} failures detected in {:?}", failures, duration);
-    println!("  ⏱ Average: {:.2}ms per failed attempt", duration.as_millis() as f64 / iterations as f64);
+    println!(
+        "  ⏱ Average: {:.2}ms per failed attempt",
+        duration.as_millis() as f64 / iterations as f64
+    );
     println!("  ℹ This demonstrates time-constant behavior (similar to success case)\n");
 
     // Benchmark: Round-trip (Encrypt + Decrypt)
@@ -79,7 +94,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     let duration = start.elapsed();
     println!("  ✓ {} round-trips completed in {:?}", iterations, duration);
-    println!("  ⏱ Average: {:.2}ms per round-trip\n", duration.as_millis() as f64 / iterations as f64);
+    println!(
+        "  ⏱ Average: {:.2}ms per round-trip\n",
+        duration.as_millis() as f64 / iterations as f64
+    );
 
     // Summary
     println!("{}\n", "━".repeat(60));
