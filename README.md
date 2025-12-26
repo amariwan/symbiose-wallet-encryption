@@ -20,7 +20,7 @@ Add to your `Cargo.toml`:
 ```toml
 [dependencies]
 symbiose-wallet-encryption = "0.1.0"
-solana-sdk = "1.18"
+solana-sdk = "2.0"
 ```
 
 ## 🚀 Quick Start
@@ -84,7 +84,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 - **Algorithm**: Argon2id (hybrid mode)
 - **Iterations**: 15
-- **Memory**: 1024 KiB
+- **Memory**: 65_536 KiB (64 MiB)
 - **Parallelism**: 1 lane
 - **Output**: 256-bit key
 
@@ -205,9 +205,9 @@ For production use in high-value systems, we recommend:
 | Crate        | Version | Purpose                              |
 |--------------|---------|--------------------------------------|
 | `orion`      | 0.17    | Cryptographic primitives             |
-| `solana-sdk` | 1.18    | Solana keypair handling              |
+| `solana-sdk` | 2.0     | Solana keypair handling              |
 | `getrandom`  | 0.2     | Secure random number generation      |
-| `base58`     | 0.2     | Base58 encoding/decoding             |
+| `bs58`       | 0.4     | Base58 encoding/decoding             |
 | `anyhow`     | 1.0     | Error handling                       |
 | `zeroize`    | 1.7     | Secure memory zeroing                |
 

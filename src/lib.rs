@@ -38,7 +38,6 @@
 //! # }
 //! ```
 
-use std::convert::TryFrom;
 use getrandom::getrandom;
 use orion::{
     hazardous::{
@@ -49,6 +48,7 @@ use orion::{
     kdf::{derive_key, Password, Salt},
 };
 use solana_sdk::signature::Keypair;
+use std::convert::TryFrom;
 use thiserror::Error;
 use zeroize::Zeroize;
 
@@ -95,6 +95,10 @@ impl SensitiveData {
 const SALT_LEN: usize = 32;
 const NONCE_LEN: usize = 24; // XChaCha20-Poly1305 nonce size
 const TAG_LEN: usize = POLY1305_OUTSIZE; // 16 bytes
+
+// Tunable Argon2id parameters (memory dominates GPU-resistance)
+const ARGON2_ITERATIONS: u32 = 15; // Time cost
+const ARGON2_MEMORY_KIB: u32 = 65_536; // 64 MiB (desktop/server-friendly baseline)
 
 /// Generates a cryptographically secure random salt for key derivation
 ///
@@ -143,7 +147,7 @@ fn generate_nonce() -> Result<Nonce, WalletEncryptionError> {
 ///
 /// - Algorithm: Argon2id (hybrid mode - resistant to both side-channel and GPU attacks)
 /// - Iterations: 15 (time cost)
-/// - Memory: 1024 KiB (memory cost)
+/// - Memory: 65_536 KiB (memory cost)
 /// - Parallelism: 1 (lanes)
 /// - Output length: 32 bytes (256 bits)
 ///
@@ -164,8 +168,14 @@ fn derive_secret_key(password: &str, salt: &Salt) -> Result<SecretKey, WalletEnc
     // Derive key using Argon2id with secure defaults
     // These parameters provide a good balance between security and performance
     // For higher security requirements, increase iterations or memory
-    let derived_key = derive_key(&password_protected, salt, 15, 1024, CHACHA_KEYSIZE as u32)
-        .map_err(|_| WalletEncryptionError::KeyDerivationFailed)?;
+    let derived_key = derive_key(
+        &password_protected,
+        salt,
+        ARGON2_ITERATIONS,
+        ARGON2_MEMORY_KIB,
+        CHACHA_KEYSIZE as u32,
+    )
+    .map_err(|_| WalletEncryptionError::KeyDerivationFailed)?;
 
     // Convert to XChaCha20 SecretKey type
     SecretKey::from_slice(derived_key.unprotected_as_bytes()).map_err(|e| {
@@ -353,7 +363,7 @@ pub fn decrypt_wallet(
 
     let wallet_bytes = bs58::decode(&wallet_str)
         .into_vec()
-        .map_err(|_| WalletEncryptionError::KeypairRestorationFailed)?;
+        .map_err(|e| WalletEncryptionError::CryptoError(format!("Base58 decode failed: {}", e)))?;
 
     // Step 7: Restore Solana Keypair
     let keypair = Keypair::try_from(wallet_bytes.as_slice())
