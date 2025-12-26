@@ -36,7 +36,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Encrypt
     let encrypted_blob = encrypt_wallet(&wallet, password)?;
-    
+
     // Store encrypted_blob safely (filesystem, cloud, database)
     std::fs::write("wallet.enc", &encrypted_blob)?;
 
