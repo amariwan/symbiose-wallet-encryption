@@ -143,16 +143,6 @@ Before submitting:
    - Potential security implications
    - Compatibility concerns
 
-## Security Vulnerabilities
-
-**DO NOT** open public issues for security vulnerabilities.
-
-Instead:
-- Email: [security@your-domain.com]
-- Use GitHub Security Advisories
-- Provide detailed information privately
-
-See [SECURITY.md](SECURITY.md) for full policy.
 
 ## Code Review Process
 
